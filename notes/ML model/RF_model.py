@@ -1,7 +1,9 @@
 import yfinance as yf
-import seaborn as sns
 
 from typing import List
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 class RF_Model:
     """
@@ -48,10 +50,10 @@ class RF_Model:
 
         self.target = target # DV to learn
         
-        self.stock_data = yf.download(stock_names, start=start_date, end=end_date)
+        self.stock_data = yf.download(stocks, start=start_date, end=end_date)
         # stack stock data 
         self.stock_df = (
-        stock_data.stack(level=1)              
+        self.stock_data.stack(level=1)              
           .reset_index()
           .rename(columns={
               'level_0': 'Date',
@@ -61,9 +63,11 @@ class RF_Model:
         # ensure properly sorted
         self.stock_df = self.stock_df.sort_values(["Symbol", "Date"])
 
-        self.corr = None
         self.final_features = self.features 
         self.final_df = self.stock_df.copy()
+
+        self.rf = None
+        self.pred = None
 
     def det_features(self):
         """
@@ -75,8 +79,8 @@ class RF_Model:
         """
         # calculate features
         features_class = Features(self.final_df, self.window, self.lookback, self.lamb)
-        self.final_df[self.features] = feature_class.calculate_features(self.features)
-        self.final_df[self.target] = feature_class.calculate_target(self.target)
+        self.final_df[self.features] = features_class.calculate_features(self.features)
+        self.final_df[self.target] = features_class.calculate_target(self.target)
 
         # clean data
         self._clean_data()
@@ -90,7 +94,145 @@ class RF_Model:
             Assumes self.final_features and self.final_df correctly updated
             Fits random forest
         """
+        data = self.final_df.dropna(subset=self.final_features + [self.target])
 
+        X = data[self.final_features]        
+        y = data[self.target]
+        
+        meta = data[['Date', 'Symbol']] # keep track of metadata
+        
+        # train/test split
+        split_date = data.Date.quantile(0.8)
+        
+        train_mask = data['Date'] < split_date
+        
+        X_train = X[train_mask]
+        X_test  = X[~train_mask]
+        
+        y_train = y[train_mask]
+        y_test  = y[~train_mask]
+        
+        meta_test = meta[~train_mask]
+
+        self.rf = RandomForestRegressor(
+            n_estimators=500,
+            max_depth=8,
+            min_samples_leaf=20,
+            random_state=42,
+            n_jobs=-1
+        )
+        
+        self.rf.fit(X_train, y_train)
+        
+        self.pred = self.rf.predict(X_test)
+        self.test = y_test
+
+        self.results = meta_test.copy()
+        self.results['predicted_vol'] = pred
+        self.results['realized_vol'] = y_test.values
+
+    def test_results(self):
+        """
+            After RF is fit, see how it compares
+        """
+        rmse = np.sqrt(mean_squared_error(self.test, self.pred))
+        mae = mean_absolute_error(self.test, self.pred)
+        r2 = r2_score(self.test, self.pred)
+        bias = (
+            self.results.groupby("Symbol")
+            .apply(lambda x: (x["predicted_vol"] - x["realized_vol"]).mean())
+        )
+
+        self.metrics = {
+            "rmse": rmse,
+            "mae": mae,
+            "r2": r2,
+            "bias" : bias
+        }
+        return self.metrics
+
+    def plot_results(self):
+        """
+            plot actual vs predicted results
+        """
+        results = self.results.sort_values('Date')
+
+        fig, axes = plt.subplots(len(self.stocks), 1, figsize=(12, 4 * len(self.stocks)), sharex=True)
+        
+        if len(self.stocks) == 1:
+            axes = [axes]
+        
+        for i, name in enumerate(self.stocks):
+            ax = axes[i]
+        
+            stock_data = results[results["Symbol"] == name].dropna(subset=["realized_vol", "predicted_vol"])
+        
+            ax.plot(stock_data["Date"], stock_data["realized_vol"], label="Realized Vol")
+            ax.plot(stock_data["Date"], stock_data["predicted_vol"], label="Predicted Vol")
+        
+            ax.set_title(name)
+            ax.set_ylabel("Volatility")
+            ax.legend()
+        
+        axes[-1].set_xlabel("Date")
+        
+        plt.tight_layout()
+        plt.show()
+
+    def scatter(self):
+        results = self.results.sort_values("Date")
+        plt.figure(figsize=(6,6))
+
+        plt.scatter(
+            results["realized_vol"],
+            results["predicted_vol"],
+            alpha=0.25
+        )
+        
+        minv = min(results["realized_vol"].min(), results["predicted_vol"].min())
+        maxv = max(results["realized_vol"].max(), results["predicted_vol"].max())
+        
+        plt.plot([minv, maxv], [minv, maxv], "r--")
+        
+        plt.title("Predicted vs Realized Volatility")
+        plt.xlabel("Realized Volatility")
+        plt.ylabel("Predicted Volatility")
+        plt.show()
+
+    def rolling_mae_plot(self):
+        results = self.results.sort_values("Date")
+        results["abs_error"] = (
+            results["predicted_vol"] - results["realized_vol"]
+        ).abs()
+        
+        results["rolling_mae"] = (
+            results.groupby("Symbol")["abs_error"]
+            .transform(lambda x: x.rolling(50).mean())
+        )
+        
+        plt.figure(figsize=(12,5))
+        
+        for name in stock_names:
+            stock = results[results["Symbol"] == name]
+            plt.plot(stock["Date"], stock["rolling_mae"], label=name)
+        
+        plt.title("Rolling MAE")
+        plt.xlabel("Date")
+        plt.ylabel("MAE")
+        plt.legend()
+        plt.show()
+
+    def hist(self):
+        results = self.results.sort_values("Date")
+        plt.figure(figsize=(8,5))
+
+        plt.hist(results["predicted_vol"] - results["realized_vol"], bins=50, alpha=0.7)
+        
+        plt.title("Prediction Error Distribution (Pred - Real)")
+        plt.xlabel("Error")
+        plt.ylabel("Frequency")
+        plt.show()
+    
     def _clean_data(self):
         """
             Cleans data: 
