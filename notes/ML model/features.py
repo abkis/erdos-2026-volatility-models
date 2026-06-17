@@ -1,6 +1,17 @@
 import pandas as pd
 from typing import List
 
+from ta.trend import MACD, ADXIndicator
+from ta.momentum import RSIIndicator
+from ta.volume import (
+    OnBalanceVolumeIndicator,
+    ChaikinMoneyFlowIndicator,
+)
+from ta.volatility import (
+    AverageTrueRange,
+    BollingerBands,
+)
+
 class Features:
     """
         Calculates features ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
@@ -28,6 +39,16 @@ class Features:
         """
         self._calculate_features()
         return self.df[features]
+
+    def calculate_target(self, target : str):
+        self.df[target] = (
+            self.df.groupby('Symbol')['log_return']
+              .transform(lambda x: x[::-1]
+                           .rolling(s)elf.window
+                           .std()[::-1]
+                           .shift(-self.window + 1))
+        )
+        return self.df[target]
     
     @static_method
     def _ewma(r : float, lamb : float) -> float:
