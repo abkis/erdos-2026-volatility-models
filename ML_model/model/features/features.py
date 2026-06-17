@@ -1,6 +1,6 @@
-import pandas as pd
 from typing import List
 
+import numpy as np
 from ta.trend import MACD, ADXIndicator
 from ta.momentum import RSIIndicator
 from ta.volume import (
@@ -44,13 +44,14 @@ class Features:
         self.df[target] = (
             self.df.groupby('Symbol')['log_return']
               .transform(lambda x: x[::-1]
-                           .rolling(s)elf.window
+                           .rolling(self.window)
                            .std()[::-1]
-                           .shift(-self.window + 1))
+                           .shift(-self.window + 1)
+                           )
         )
         return self.df[target]
     
-    @static_method
+    @staticmethod
     def _ewma(r : float, lamb : float) -> float:
         """
             Helper method for calculating ewma
@@ -58,8 +59,8 @@ class Features:
         var = r.pow(2).ewm(alpha=1-lamb).mean()
         return np.sqrt(var * 252)
 
-    @static_method
-    def _ta_features(group):
+    @staticmethod
+    def _ta_features(self, group):
         """
             Calculate ta features when data grouped by symbol
             Need Close/High/Low/Volume data
@@ -169,7 +170,7 @@ class Features:
         )
         # close-close
         self.df["close_close_vol"] = (
-        self.df.groupby("Symbol")["log_ret"]
+        self.df.groupby("Symbol")["log_return"]
           .transform(lambda x: x.rolling(self.window).std() * np.sqrt(252))
         )
         # garman-klass volatility
@@ -223,7 +224,7 @@ class Features:
 
         # ewma 
         self.df["ewma"] = (
-        self.df.groupby("Symbol")["log_ret"]
+        self.df.groupby("Symbol")["log_return"]
           .transform(lambda x : self._ewma(x, self.lamb))
         )
 
