@@ -1,9 +1,14 @@
+from matplotlib import pyplot as plt
+import numpy as np
 import yfinance as yf
 
 from typing import List
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+from ML_model.model.features.features import Features
+from ML_model.model.refine_features.refine_features import RefineFeatures
 
 class RF_Model:
     """
@@ -128,7 +133,7 @@ class RF_Model:
         self.test = y_test
 
         self.results = meta_test.copy()
-        self.results['predicted_vol'] = pred
+        self.results['predicted_vol'] = self.pred
         self.results['realized_vol'] = y_test.values
 
     def test_results(self):
@@ -212,7 +217,7 @@ class RF_Model:
         
         plt.figure(figsize=(12,5))
         
-        for name in stock_names:
+        for name in self.stocks:
             stock = results[results["Symbol"] == name]
             plt.plot(stock["Date"], stock["rolling_mae"], label=name)
         
