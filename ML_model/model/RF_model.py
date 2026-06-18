@@ -5,7 +5,8 @@ import yfinance as yf
 from typing import List
 
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 
 from model.features.features import Features
 from model.refine_features.refine_features import RefineFeatures
@@ -17,22 +18,25 @@ class RF_Model:
         Deals with daily historical data
     """
 
-    def __init__(self, stocks : List[str], window : int, start_date : str, end_date : str, features : List[str]| None, target : str,
-                lookback = 22, lamb = 0.94, winsorize = True, corr_threshold = 0.9, lower_q=0.01, upper_q=0.99, rf_refine=True):
+    def __init__(self, stocks : List[str], window : int, start_date : str, end_date : str, features : List[str]| None, target_window : int,
+                lookback = 22, lamb = 0.94, winsorize = True, corr_threshold = 0.9, lower_q=0.01, upper_q=0.99, rf_refine=True, grid_search = False, rf_params = None):
         """
             Initialize class
             stocks: list of stock names
             window: positive integer for rolling window
             start_date, end_date: start/end date for stock info, format yyyy-mm-dd
             features: list of strings, must be from ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
-                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf"]
+                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
                 If none defaults to full list
+            target_window: target is future realized volatility with window target_window. Should be an integer greater than one
             lookback used in VIX proxy, usually 22
             lamb is a float between zero and one, usually 0.94 for daily data
             winsorize: boolean that determines if outliers are clipped
             corr_threshold: float value used to determine which features are dropped in case of high correlation
             lower_q, upper_q are quantiles for winsorization
             performs additional rf refinement if rf_refine is True
+            grid_search: if set to true runs grid search to get best params
+            rf_params: used as paramaters for rf. if none given use default
         """
         self.stocks = stocks
         self.window = window
@@ -45,7 +49,7 @@ class RF_Model:
         self.lower_q = lower_q
         self.upper_q = upper_q
         self.rf_refine = rf_refine
-        self.all_features = ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf"]
+        self.all_features = ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
         if features is not None:
             for feature in features:
                 assert feature in self.all_features
@@ -53,7 +57,8 @@ class RF_Model:
         else:
             self.features = self.all_features
 
-        self.target = target # DV to learn
+        self.target_window = target_window
+        self.target = "target_real_vol_" + str(target_window)
         
         self.stock_data = yf.download(stocks, start=start_date, end=end_date)
         # stack stock data 
@@ -74,6 +79,20 @@ class RF_Model:
         self.rf = None
         self.pred = None
 
+        if rf_params is None:
+            self.rf_params = {
+                "n_estimators": 500,
+                "max_depth": 8,
+                "min_samples_leaf": 20,
+                "max_features": "sqrt",
+                "random_state": 42,
+                "n_jobs": -1
+            }
+        else:
+            self.rf_params = rf_params
+        
+        self.grid_search = grid_search
+
     def det_features(self):
         """
             Method for calculating features to be used/ensuring data is good
@@ -85,7 +104,7 @@ class RF_Model:
         # calculate features
         features_class = Features(self.final_df, self.window, self.lookback, self.lamb)
         self.final_df[self.features] = features_class.calculate_features(self.features)
-        self.final_df[self.target] = features_class.calculate_target(self.target)
+        self.final_df[self.target] = features_class.calculate_target(self.target_window, self.target)
 
         # clean data
         self._clean_data()
@@ -119,29 +138,60 @@ class RF_Model:
         
         meta_test = meta[~train_mask]
 
-        self.rf = RandomForestRegressor(
-            n_estimators=500,
-            max_depth=8,
-            min_samples_leaf=20,
-            random_state=42,
-            n_jobs=-1
-        )
+        if self.grid_search:
+            # get best params for rf
+
+            # setup model
+            rf = RandomForestRegressor(
+                random_state=42,
+                n_jobs=-1
+            )
         
-        self.rf.fit(X_train, y_train)
+            # pick best model using gridsearch
+            
+            param_grid = {
+                "n_estimators": [300, 500],
+                "max_depth": [5, 8, 12, None],
+                "min_samples_leaf": [1, 5, 10, 20],
+                "max_features": ["sqrt", 0.5]
+            }
         
+            tscv = TimeSeriesSplit(n_splits=5)
+        
+            grid = GridSearchCV(
+                estimator=rf,
+                param_grid=param_grid,
+                cv=tscv,
+                scoring="neg_mean_squared_error",
+                n_jobs=-1,
+                verbose=1
+            )
+        
+            grid.fit(X_train, y_train)
+        
+            # best model
+            self.rf = grid.best_estimator_
+            self.rf_params = grid.best_params_
+        else:
+            self.rf = RandomForestRegressor(**self.rf_params)
+        
+        # test model
         self.pred = self.rf.predict(X_test)
         self.test = y_test
-
+    
         self.results = meta_test.copy()
-        self.results['predicted_vol'] = self.pred
-        self.results['realized_vol'] = y_test.values
+        self.results["predicted_vol"] = self.pred
+        self.results["realized_vol"] = y_test.values
 
     def test_results(self):
         """
             After RF is fit, see how it compares
+            Calculate MAE, MSE, RMSE, MAPE, R2, and bias
         """
-        rmse = np.sqrt(mean_squared_error(self.test, self.pred))
+        mse = mean_squared_error(self.test, self.pred)
+        rmse = np.sqrt(mse)
         mae = mean_absolute_error(self.test, self.pred)
+        mape = mean_absolute_percentage_error(self.test, self.pred)
         r2 = r2_score(self.test, self.pred)
         bias = (
             self.results.groupby("Symbol")
@@ -149,9 +199,11 @@ class RF_Model:
         )
 
         self.metrics = {
+            "mse" : mse,
             "rmse": rmse,
             "mae": mae,
             "r2": r2,
+            "mape" : mape,
             "bias" : bias
         }
         return self.metrics

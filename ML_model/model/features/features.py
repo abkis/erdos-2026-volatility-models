@@ -15,7 +15,7 @@ from ta.volatility import (
 class Features:
     """
         Calculates features ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
-                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf"]
+                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
     """
 
     def __init__(self, df, window : int, lookback : int, lamb : float):
@@ -40,16 +40,22 @@ class Features:
         self._calculate_features()
         return self.df[features]
 
-    def calculate_target(self, target : str):
-        self.df[target] = (
-            self.df.groupby('Symbol')['log_return']
-              .transform(lambda x: x[::-1]
-                           .rolling(self.window)
-                           .std()[::-1]
-                           .shift(-self.window + 1)
-                           )
+    def calculate_target(self, target_horizon: int, target_name: str):
+
+        self.df[target_name] = (
+            self.df.groupby("Symbol")["log_return"]
+            .transform(
+                lambda x: np.sqrt(
+                    252 *
+                    x.pow(2)
+                     .rolling(target_horizon)
+                     .mean()
+                     .shift(-target_horizon)
+                )
+            )
         )
-        return self.df[target]
+    
+        return self.df[target_name]
     
     @staticmethod
     def _ewma(r : float, lamb : float) -> float:
@@ -59,7 +65,6 @@ class Features:
         var = r.pow(2).ewm(alpha=1-lamb).mean()
         return np.sqrt(var * 252)
 
-    @staticmethod
     def _ta_features(self, group):
         """
             Calculate ta features when data grouped by symbol
@@ -234,3 +239,14 @@ class Features:
             .groupby("Symbol", group_keys=False)
             .apply(self._ta_features)
         )
+
+        # rolling volatility features
+        for w in [5, 21, 63]:
+            self.df[f"rv_{w}"] = (
+                self.df.groupby("Symbol")["log_return"]
+                .transform(
+                    lambda x: np.sqrt(
+                        252 * x.pow(2).rolling(w).mean()
+                    )
+                )
+            )

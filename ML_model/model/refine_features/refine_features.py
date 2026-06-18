@@ -109,11 +109,10 @@ class RefineFeatures:
 
     def refine_features(self):
         """
-            Cleans data
+            Assumes have clean data
             Determines which features to keep
             Returns list of features to keep and df with only those features and target
         """
-        self._clean_data()
 
         cluster_map = self._cluster_features()
         selected = self._from_clusters(cluster_map)
