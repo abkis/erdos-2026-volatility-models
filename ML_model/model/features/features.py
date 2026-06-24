@@ -15,7 +15,7 @@ from ta.volatility import (
 class Features:
     """
         Calculates features ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
-                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
+                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_1", "rv_5", "rv_21", "rv_63"]
     """
 
     def __init__(self, df, window : int, lookback : int, lamb : float):
@@ -237,11 +237,11 @@ class Features:
         self.df = (
             self.df
             .groupby("Symbol", group_keys=False)
-            .apply(self._ta_features)
+            .apply(self._ta_features, include_groups=False)
         )
 
         # rolling volatility features
-        for w in [5, 21, 63]:
+        for w in [1, 5, 21, 63]:
             self.df[f"rv_{w}"] = (
                 self.df.groupby("Symbol")["log_return"]
                 .transform(

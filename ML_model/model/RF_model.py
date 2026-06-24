@@ -26,7 +26,7 @@ class RF_Model:
             window: positive integer for rolling window
             start_date, end_date: start/end date for stock info, format yyyy-mm-dd
             features: list of strings, must be from ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
-                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
+                "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_1", "rv_5", "rv_21", "rv_63"]
                 If none defaults to full list
             target_window: target is future realized volatility with window target_window. Should be an integer greater than one
             lookback used in VIX proxy, usually 22
@@ -49,7 +49,7 @@ class RF_Model:
         self.lower_q = lower_q
         self.upper_q = upper_q
         self.rf_refine = rf_refine
-        self.all_features = ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_5", "rv_21", "rv_63"]
+        self.all_features = ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_1",  "rv_5", "rv_21", "rv_63"]
         if features is not None:
             for feature in features:
                 assert feature in self.all_features
@@ -63,7 +63,7 @@ class RF_Model:
         self.stock_data = yf.download(stocks, start=start_date, end=end_date)
         # stack stock data 
         self.stock_df = (
-        self.stock_data.stack(level=1)              
+        self.stock_data.stack(level=1, future_stack=True)              
           .reset_index()
           .rename(columns={
               'level_0': 'Date',
@@ -78,6 +78,7 @@ class RF_Model:
 
         self.rf = None
         self.pred = None
+        self.metrics = None
 
         if rf_params is None:
             self.rf_params = {
@@ -174,6 +175,7 @@ class RF_Model:
             self.rf_params = grid.best_params_
         else:
             self.rf = RandomForestRegressor(**self.rf_params)
+            self.rf = self.rf.fit(X_train, y_train)
         
         # test model
         self.pred = self.rf.predict(X_test)
@@ -193,10 +195,9 @@ class RF_Model:
         mae = mean_absolute_error(self.test, self.pred)
         mape = mean_absolute_percentage_error(self.test, self.pred)
         r2 = r2_score(self.test, self.pred)
-        bias = (
-            self.results.groupby("Symbol")
-            .apply(lambda x: (x["predicted_vol"] - x["realized_vol"]).mean())
-        )
+
+        # relative data
+        rel_mse = mse / np.var(self.test)
 
         self.metrics = {
             "mse" : mse,
@@ -204,7 +205,7 @@ class RF_Model:
             "mae": mae,
             "r2": r2,
             "mape" : mape,
-            "bias" : bias
+            "rel_mse" : rel_mse
         }
         return self.metrics
 
