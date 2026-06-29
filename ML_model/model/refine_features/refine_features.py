@@ -16,7 +16,7 @@ class RefineFeatures:
     def __init__(self, df, features : list, target : str, corr_threshold = 0.9, rf_refine=True):
         """
             Assume df has features calculated
-            target is target value to estimate
+            target is target value to estimate: should be full column name
             corr_threshold: float value used to determine which features are dropped in case of high correlation
             performs additional rf refinement if rf_refine is True
         """
@@ -35,7 +35,7 @@ class RefineFeatures:
         """
         # weight features (maybe not?)
         df = self.df.copy()
-        df[self.features] = df.groupby("Symbol")[self.features].transform(
+        df[self.features] = df[self.features].transform(
             lambda x: (x - x.mean()) / (x.std() + 1e-8)
         )
         

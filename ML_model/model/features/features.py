@@ -40,22 +40,25 @@ class Features:
         self._calculate_features()
         return self.df[features]
 
-    def calculate_target(self, target_horizon: int, target_name: str):
+    def calculate_target(self, target_name: str, target_horizon: int):
 
-        self.df[target_name] = (
-            self.df.groupby("Symbol")["log_return"]
-            .transform(
-                lambda x: np.sqrt(
-                    252 *
-                    x.pow(2)
-                     .rolling(target_horizon)
-                     .mean()
-                     .shift(-target_horizon)
+        if target_horizon <= 0:
+            self.df["target_" + target_name] = self.df[target_name].shift(-1)
+        else:
+            self.df["target_" + target_name] = (
+                self.df[target_name]
+                .transform(
+                    lambda x: np.sqrt(
+                        252 *
+                        x.pow(2)
+                         .rolling(target_horizon)
+                         .mean()
+                         .shift(-target_horizon)
+                    )
                 )
             )
-        )
     
-        return self.df[target_name]
+        return self.df["target_" + target_name]
     
     @staticmethod
     def _ewma(r : float, lamb : float) -> float:
@@ -65,18 +68,19 @@ class Features:
         var = r.pow(2).ewm(alpha=1-lamb).mean()
         return np.sqrt(var * 252)
 
-    def _ta_features(self, group):
+    def _ta_features(self):
         """
-            Calculate ta features when data grouped by symbol
+            Calculate ta features
             Need Close/High/Low/Volume data
             Creates columns ["macd", "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf"]
+            Modifies self.df
         """
 
         # data 
-        close = group["Close"]
-        high = group["High"]
-        low = group["Low"]
-        volume = group["Volume"]
+        close = self.df["Close"]
+        high = self.df["High"]
+        low = self.df["Low"]
+        volume = self.df["Volume"]
 
         # macd
         macd = MACD(
@@ -86,12 +90,12 @@ class Features:
             window_sign=9,
         )
     
-        group["macd"] = macd.macd()
-        group["macd_signal"] = macd.macd_signal()
-        group["macd_hist"] = macd.macd_diff()
+        self.df["macd"] = macd.macd()
+        self.df["macd_signal"] = macd.macd_signal()
+        self.df["macd_hist"] = macd.macd_diff()
 
         # rsi
-        group["rsi"] = RSIIndicator(
+        self.df["rsi"] = RSIIndicator(
             close=close,
             window=14,
         ).rsi()
@@ -104,7 +108,7 @@ class Features:
             window=14,
         )
     
-        group["adx"] = adx.adx()
+        self.df["adx"] = adx.adx()
 
         # atr
         atr = AverageTrueRange(
@@ -114,7 +118,7 @@ class Features:
             window=14,
         )
     
-        group["atr"] = atr.average_true_range()
+        self.df["atr"] = atr.average_true_range()
     
         # bb_width
         bb = BollingerBands(
@@ -123,13 +127,13 @@ class Features:
             window_dev=2,
         )
 
-        group["bb_width"] = (
+        self.df["bb_width"] = (
             bb.bollinger_hband()
             - bb.bollinger_lband()
         ) / bb.bollinger_mavg()
 
         # obv
-        group["obv"] = (
+        self.df["obv"] = (
             OnBalanceVolumeIndicator(
                 close=close,
                 volume=volume,
@@ -137,7 +141,7 @@ class Features:
         )
 
         # cmf
-        group["cmf"] = (
+        self.df["cmf"] = (
             ChaikinMoneyFlowIndicator(
                 high=high,
                 low=low,
@@ -147,7 +151,6 @@ class Features:
             ).chaikin_money_flow()
         )
     
-        return group
 
     def _calculate_features(self):
         """
@@ -155,19 +158,18 @@ class Features:
             May only end up using a subset of these
         """
         self.df["log_return"] = (
-            self.df.groupby("Symbol")["Close"]
+            self.df["Close"]
               .transform(lambda x: np.log(x / x.shift(1)))
         )
         self.df["rolling_vol"] = (
-            self.df.groupby("Symbol")["Close"]
+            self.df["Close"]
               .transform(lambda x: x.rolling(self.window).std()*np.sqrt(252))
         )
         # high/low ratio used for parkinson volatility
         hl = np.log(self.df["High"] / self.df["Low"])**2
 
         self.df["parkinson_vol"] = (
-            hl.groupby(self.df["Symbol"])
-              .transform(
+            hl.transform(
                   lambda x: np.sqrt(
                       x.rolling(self.window).mean() / (4*np.log(2))
                   ) * np.sqrt(252)
@@ -175,7 +177,7 @@ class Features:
         )
         # close-close
         self.df["close_close_vol"] = (
-        self.df.groupby("Symbol")["log_return"]
+        self.df["log_return"]
           .transform(lambda x: x.rolling(self.window).std() * np.sqrt(252))
         )
         # garman-klass volatility
@@ -186,7 +188,7 @@ class Features:
         )
         
         self.df["GK_vol"] = (
-            gk_var.groupby(self.df["Symbol"])
+            gk_var
                   .transform(
                       lambda x: np.sqrt(
                           x.rolling(self.window).mean()
@@ -195,7 +197,7 @@ class Features:
         )
         # GKYZ for overnight jumps
         prev_close = (
-            self.df.groupby("Symbol")["Close"]
+            self.df["Close"]
             .shift(1)
         )
         
@@ -207,7 +209,7 @@ class Features:
         )
         
         self.df["GKYZ"] = (
-            gkyz_var.groupby(self.df["Symbol"])
+            gkyz_var
                     .transform(
                         lambda x: np.sqrt(
                             x.rolling(self.window).mean()
@@ -217,7 +219,7 @@ class Features:
 
         # VIX proxy
         highest_close = (
-            self.df.groupby("Symbol")["Close"]
+            self.df["Close"]
             .transform(lambda x: x.rolling(self.lookback).max())
         )
         
@@ -229,21 +231,17 @@ class Features:
 
         # ewma 
         self.df["ewma"] = (
-        self.df.groupby("Symbol")["log_return"]
+        self.df["log_return"]
           .transform(lambda x : self._ewma(x, self.lamb))
         )
 
         # add indicators from ta library
-        self.df = (
-            self.df
-            .groupby("Symbol", group_keys=False)
-            .apply(self._ta_features, include_groups=False)
-        )
+        self._ta_features()
 
         # rolling volatility features
         for w in [1, 5, 21, 63]:
             self.df[f"rv_{w}"] = (
-                self.df.groupby("Symbol")["log_return"]
+                self.df["log_return"]
                 .transform(
                     lambda x: np.sqrt(
                         252 * x.pow(2).rolling(w).mean()
