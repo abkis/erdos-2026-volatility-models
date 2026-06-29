@@ -80,7 +80,7 @@ target/
 
 # data
 *.pkl
-data/
+*.json
 
 # IPython
 profile_default/

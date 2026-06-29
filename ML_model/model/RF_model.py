@@ -204,7 +204,8 @@ class RF_Model:
         df = df.replace([np.inf, -np.inf], np.nan)
 
         # remove nan
-        df = df.dropna(subset=self.features + ["target_" + self.target_name])
+        col_names = self.final_features + ["target_"+self.target_name]
+        df = df.dropna(subset=col_names)
 
         # winsorize (if applicable)
         if self.winsorize:
