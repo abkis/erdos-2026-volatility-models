@@ -1,34 +1,3 @@
-"""
-main_bs.py
-----------
-Driver script for the Black-Scholes (BS) and ML-corrected BS (ML_BS)
-investigation.  Mirrors main.py (RF model) exactly so all three models
-are evaluated on the same tickers, regimes, and 80/20 train/test split.
-
-Key design decisions
---------------------
-* Features are computed on the FULL period data in a single pass so that
-  rolling-vol windows are valid at every test-set row (no NaN loss at the
-  train/test boundary).
-* The 80/20 split is date-based (same quantile convention as main.py).
-* All option prices are normalised by spot S₀ so RMSE/MAE/R² are
-  scale-free and comparable across tickers with different price levels.
-* MAPE is computed only on ITM rows (realised payoff > 0) to avoid
-  division-by-zero from OTM calls.
-
-Outputs
--------
-  data/output_bs.txt          — console log (BS + ML-BS metrics per run)
-  data/ticker_summary_bs.csv  — per-ticker mean/std/median of all metrics (BS)
-  data/time_summary_bs.csv    — per-regime mean/std/median of all metrics (BS)
-  data/ticker_summary_ml.csv  — same for ML-corrected BS
-  data/time_summary_ml.csv    — same for ML-corrected BS
-  data/*.png                  — comparison plots
-
-Usage
------
-  python main_bs.py
-"""
 
 import os
 import sys
