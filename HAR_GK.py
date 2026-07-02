@@ -1,9 +1,6 @@
 import numpy as np
 import pandas as pd
-import yfinance as yf
-import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from datetime import datetime, timedelta
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
@@ -123,6 +120,6 @@ class fit():
         Computes the average volatility over the prediction period.
         Returns: A float representing the average predicted volatility.
         '''
-        
+
         return np.sqrt(np.sum(self.test())*252/self.trading_days_test())
     

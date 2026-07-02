@@ -1,5 +1,4 @@
 from socket import close
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -164,7 +163,7 @@ class compare_models:
         ax.axis("off")
 
         table = ax.table(
-            # Format every float inline to 5 decimal places right inside the call
+            # Format every float inline to 6 decimal places right inside the call
             cellText=[[f"{x:.6f}" if isinstance(x, (int, float)) else x for x in row] for row in df.values],
             colLabels=df.columns,
             cellLoc="center",
@@ -180,6 +179,11 @@ class compare_models:
 
 
 def plot_table_all(all_results):
+    '''
+    Plotting a table comparing the MSE and QLIKE metrics for each model and each ticker. This is only if you want a table for all tickers and models together
+    all_results: pd.DataFrame, a DataFrame containing the MSE and QLIKE metrics
+    '''
+
     results_df = pd.DataFrame(all_results)
     fig, ax = plt.subplots(figsize=(10, 2 + 0.5 * len(results_df)))
     ax.axis("off")
@@ -198,7 +202,7 @@ def plot_table_all(all_results):
     table.set_fontsize(10)
     table.scale(1.2, 1.5)
 
-    plt.title("Model Performance Comparison")
+    plt.title("Model Performance Comparison MSE and QLIKE")
     plt.show()    
 
  
