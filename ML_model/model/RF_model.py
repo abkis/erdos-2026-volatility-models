@@ -18,13 +18,10 @@ class RF_Model:
         Deals with daily historical data
     """
 
-    def __init__(self, df : pd.DataFrame, window : int, features : List[str]| None, target_name : str, target_window = 0,  lookback = 22, lamb = 0.94, 
+    def __init__(self, features : List[str]| None, window: int=21, target_name : str = "GK_vol", target_window = 0,  lookback = 22, lamb = 0.94, 
                  winsorize = False, corr_threshold = 0.9, lower_q=0.01, upper_q=0.99, rf_refine=True, grid_search = False, rf_params = None):
         """
             Initialize class
-            df: pandas dataframe with column names Date, Open, Close, Volume, High, Low
-                - Assumed to be appropriately cleaned, outliers dealt with, etc
-                - Used for training of model
             window: positive integer for rolling window
             features: list of strings, must be from ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
                 "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_1", "rv_5", "rv_21", "rv_63"]
@@ -40,7 +37,10 @@ class RF_Model:
             grid_search: if set to true runs grid search to get best params
             rf_params: used as paramaters for rf. if none given use default
         """
-        self.df = df.sort_values("Date")
+        self.df = None
+
+        self.start_test = None
+        self.end_test = None
         self.window = window
         self.winsorize = winsorize
         self.corr_threshold = corr_threshold
@@ -62,7 +62,6 @@ class RF_Model:
         self.target_name = target_name
 
         self.final_features = self.features 
-        self.final_df = self.df.copy()
 
         self.rf = None
         self.pred = None
@@ -82,6 +81,22 @@ class RF_Model:
         
         self.grid_search = grid_search
 
+    def fit(self, df : pd.DataFrame, start_test : str, end_test =None):
+        """
+            Fit model
+            df: pandas dataframe with column names Date, Open, Close, Volume, High, Low
+                - Assumed to be appropriately cleaned, outliers dealt with, etc
+                - Used for training of model
+            start_test denotes start of test dates
+            end_test denotes end of test dates
+        """
+        self.df = df.sort_values(by=["Date"]) 
+        self.start_test = start_test
+        self.end_test = end_test
+        self.det_features()
+        self.fit_RF()
+        return self
+
     def det_features(self):
         """
             Method for calculating features to be used/ensuring data is good
@@ -91,15 +106,15 @@ class RF_Model:
             4. Updates self.final_features and self.final_df
         """
         # calculate features
-        features_class = Features(self.final_df, self.window, self.lookback, self.lamb)
-        self.final_df[self.features] = features_class.calculate_features(self.features)
-        self.final_df["target_" + self.target_name] = features_class.calculate_target(self.target_name, self.target_window)
+        features_class = Features(self.df, self.window, self.lookback, self.lamb)
+        self.df[self.features] = features_class.calculate_features(self.features)
+        self.df["target_" + self.target_name] = features_class.calculate_target(self.target_name, self.target_window)
 
         # clean data
-        self.final_df = self._clean_data(self.final_df)
+        self.df = self._clean_data(self.df)
 
         # refine features based on correlation info
-        refine_class = RefineFeatures(self.final_df, self.features, "target_" + self.target_name, self.corr_threshold, self.rf_refine)
+        refine_class = RefineFeatures(self.df, self.features, "target_" + self.target_name, self.corr_threshold, self.rf_refine)
         self.final_features, _ = refine_class.refine_features()
 
     def fit_RF(self):
@@ -108,11 +123,19 @@ class RF_Model:
             Fits random forest
             Uses all data as train data
         """
-        self.final_df = self.final_df.sort_values(by=["Date"]) # ensure properly sorted
-        data = self.final_df.dropna(subset=self.final_features + ["target_" + self.target_name])
+        self.df = self.df.sort_values(by=["Date"]) # ensure properly sorted
+        data = self.df.dropna(subset=self.final_features + ["target_" + self.target_name])
 
         X = data[self.final_features]        
         y = data["target_" + self.target_name]
+
+        train_mask = data['Date'] < self.start_test
+
+        X_train = X[train_mask]
+        X_test  = X[~train_mask]
+        
+        y_train = y[train_mask]
+        y_test  = y[~train_mask]
 
         if self.grid_search:
             # get best params for rf
@@ -143,14 +166,22 @@ class RF_Model:
                 verbose=1
             )
         
-            grid.fit(X, y)
+            grid.fit(X_train, y_train)
         
             # best model
             self.rf = grid.best_estimator_
             self.rf_params = grid.best_params_
         else:
             self.rf = RandomForestRegressor(**self.rf_params)
-            self.rf = self.rf.fit(X, y)
+            self.rf = self.rf.fit(X_train, y_train)
+
+        # test model
+        self.pred = self.rf.predict(X_test)
+
+        return self
+        
+    def test(self):
+        return self.pred
         
     def test_results(self, test_data : pd.DataFrame):
         """

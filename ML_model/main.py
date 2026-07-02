@@ -28,11 +28,11 @@ def test_model(data : pd.DataFrame):
     X_test  = data[~train_mask]
 
     try:
-        model = RF_model.RF_Model(X_train, window=window, target_window=0, target_name=target_name, features=None, grid_search=False, rf_params=rf_params)
+        model = RF_model.RF_Model(window=window, target_window=0, target_name=target_name, features=None, grid_search=False, rf_params=rf_params)
     
-        model.det_features()
-
-        model.fit_RF()
+        model = model.fit(data, split_date)
+        res = model.test()
+        print(res)
     except Exception as e:
         raise e
 
