@@ -3,8 +3,6 @@ BS_model.py
 -----------
 Black-Scholes pricing model class.
 
-Mirrors the interface of RF_model.py so both models are driven by the
-same main script and results are directly comparable.
 
 The model:
   1. Estimates σ from a trailing rolling-window of log-returns computed
