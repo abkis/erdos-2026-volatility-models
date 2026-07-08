@@ -7,10 +7,14 @@ R1   = kernel-weighted sum of past daily returns        (trend / leverage effect
 Sigma= sqrt(R2), R2 = kernel-weighted sum of squared returns  (volatility clustering)
 Both kernels are time-shifted power laws  K(tau) = (tau + delta)^(-alpha).
 
-Harness entry point: the `fit` class. It is handed TRAINING data only plus a test
-window and must forecast forward, matching the other models in the comparison:
-    fit(train_data, start_date_predict, end_date_predict).test()
-returns one predicted volatility per trading day in the test window.
+Harness entry point: the `fit` class. It is given the FULL price history plus a
+test window. Only the pre-test portion is used to learn the seven constants; the
+predictions then use the ACTUAL returns available up to each test day (training
+returns plus the test returns that precede it):
+
+    fit(data, start_date_predict, end_date_predict).test()
+
+`data` must therefore span through end_date_predict (e.g. training + test data).
 """
 
 from __future__ import annotations
@@ -21,12 +25,9 @@ import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 from scipy.optimize import least_squares
-from pandas.tseries.offsets import CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
 
 BUSINESS_DAYS_PER_YEAR = 252
 DT = 1.0 / BUSINESS_DAYS_PER_YEAR
-_US_BDAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 
 # --- data extraction --------------------------------------------------------
@@ -58,14 +59,6 @@ def daily_returns(prices) -> np.ndarray:
     return p[1:] / p[:-1] - 1.0
 
 
-def n_trading_days(start, end) -> int:
-    """Number of trading days in the half-open window [start, end) (US calendar,
-    matching yfinance's end-exclusive convention)."""
-    rng = pd.date_range(pd.Timestamp(start),
-                        pd.Timestamp(end) - pd.Timedelta(days=1), freq=_US_BDAY)
-    return len(rng)
-
-
 # --- kernel -----------------------------------------------------------------
 def tspl_kernel(window: int, alpha: float, delta: float, dt: float = DT) -> np.ndarray:
     """Normalized time-shifted power-law weights (lag 0 = most recent), sum(w)*dt = 1."""
@@ -87,7 +80,8 @@ def _trailing_weighted_sum(values: np.ndarray, weights: np.ndarray) -> np.ndarra
 
 # --- features ---------------------------------------------------------------
 def compute_features(prices, alpha1, delta1, alpha2, delta2, window=1000, dt=DT):
-    """Turn a price series into the two model inputs (R1, Sigma), aligned to prices."""
+    """Turn a price series into the two model inputs (R1, Sigma), aligned to prices.
+    Feature at row t uses the returns realized up to and including day t."""
     r = daily_returns(prices)
     R1 = _trailing_weighted_sum(r, tspl_kernel(window, alpha1, delta1, dt))
     R2 = _trailing_weighted_sum(r ** 2, tspl_kernel(window, alpha2, delta2, dt))
@@ -97,7 +91,7 @@ def compute_features(prices, alpha1, delta1, alpha2, delta2, window=1000, dt=DT)
     return R1, Sigma
 
 
-# --- targets ----------------------------------------------------------------
+# --- target -----------------------------------------------------------------
 def trailing_realized_vol(prices, window_days: int = 22, annualize: bool = True) -> np.ndarray:
     """Trailing annualized realized vol -- matches the project's rolling_volatility
     benchmark: pct_change().rolling(window_days).std() * sqrt(252)."""
@@ -180,41 +174,12 @@ def learn_params(train_prices, target, feature_window: int = 1000, dt: float = D
     )
 
 
-# --- prediction / forecasting -----------------------------------------------
 def predict_volatility(params: PDVParams, prices) -> np.ndarray:
-    """In-sample (contemporaneous) predicted vol from a price series; needs future
-    returns to be known, so it's for analysis, not out-of-sample forecasting."""
+    """Predicted volatility across a price series, aligned to its rows (row t uses
+    the actual returns up to and including day t)."""
     R1, Sigma = compute_features(prices, params.alpha1, params.delta1,
                                  params.alpha2, params.delta2, params.feature_window, params.dt)
     return pdv_volatility(R1, Sigma, params.beta0, params.beta1, params.beta2)
-
-
-def forecast_volatility(params: PDVParams, train_prices, horizon: int) -> np.ndarray:
-    """Multi-step-ahead forecast for `horizon` trading days past the training end,
-    using only past returns.
-
-    The two features are rolled forward along their expected path: each future day
-    contributes expected return 0 to R1 (the trend impulse fades) and expected
-    squared return sigma^2/252 to R2 (so Sigma mean-reverts toward the forecast
-    level). This produces a smooth mean-reverting forecast curve.
-    """
-    r = daily_returns(train_prices)
-    W = params.feature_window
-    w1r = tspl_kernel(W, params.alpha1, params.delta1, params.dt)[::-1]
-    w2r = tspl_kernel(W, params.alpha2, params.delta2, params.dt)[::-1]
-
-    buf_r = r[-W:].astype(float).copy()          # trailing returns (oldest -> newest)
-    buf_r2 = buf_r ** 2                           # trailing squared returns
-    out = np.empty(horizon)
-    for h in range(horizon):
-        R1 = buf_r @ w1r
-        R2 = buf_r2 @ w2r
-        sig = params.beta0 + params.beta1 * R1 + params.beta2 * np.sqrt(max(R2, 0.0))
-        sig = max(sig, 1e-8)                       # keep positive (QLIKE-safe)
-        out[h] = sig
-        buf_r = np.append(buf_r[1:], 0.0)          # E[next return] = 0
-        buf_r2 = np.append(buf_r2[1:], sig * sig * DT)   # E[next return^2] = sig^2/252
-    return out
 
 
 # --- harness interface ------------------------------------------------------
@@ -223,13 +188,13 @@ class fit:
 
     Parameters
     ----------
-    data : yfinance TRAINING DataFrame for one ticker (as produced by
-        dowloand_data.training_data()); the test window is forecast, not read
-        from here.
-    start_date_predict, end_date_predict : test window; its US trading days set
-        the number of forecast steps (half-open [start, end), like yfinance).
+    data : yfinance DataFrame for one ticker spanning the FULL history through
+        end_date_predict (e.g. pd.concat([df.training_data(), df.test_data()])).
+    start_date_predict, end_date_predict : test window [start, end) (yfinance
+        end-exclusive). Parameters are learned only from rows before start;
+        predictions use the actual returns available up to each test day.
     feature_window : PDV kernel look-back (paper uses 1000; auto-shrunk for short
-        training histories so ~half the data is left for fitting).
+        training histories so ~half the training rows are left for fitting).
     target_window : realized-vol window used as the training target; 22 matches
         the project's rolling_volatility benchmark.
     """
@@ -237,15 +202,34 @@ class fit:
     def __init__(self, data, start_date_predict, end_date_predict,
                  feature_window: int = 1000, target_window: int = 22):
         prices = close_prices(data)
-        self.train_prices = prices.to_numpy(dtype=float)
-        n = self.train_prices.size
-        self.horizon = n_trading_days(start_date_predict, end_date_predict)
+        self.dates = prices.index
+        self.prices = prices.to_numpy(dtype=float)
 
-        # short training sets can't support a 1000-day kernel; keep enough fit rows
-        self.feature_window = int(min(feature_window, max(60, n // 2)))
-        target = trailing_realized_vol(self.train_prices, target_window)
-        self.params = learn_params(self.train_prices, target, feature_window=self.feature_window)
+        start = pd.Timestamp(start_date_predict)
+        end = pd.Timestamp(end_date_predict)
+        self.test_mask = (self.dates >= start) & (self.dates < end)
+        train_mask = self.dates < start
+
+        if self.test_mask.sum() == 0:
+            raise ValueError(
+                "No rows in [start_date_predict, end_date_predict) were found in `data`. "
+                "This model needs data spanning the test window -- pass the full history "
+                "through end_date_predict, e.g. pd.concat([df.training_data(), df.test_data()]), "
+                "not just training_data().")
+
+        train_prices = self.prices[train_mask]
+        n_train = train_prices.size
+        if n_train < 40:
+            raise ValueError("Too little training history before start_date_predict.")
+
+        self.feature_window = int(min(feature_window, max(60, n_train // 2)))
+        target = trailing_realized_vol(train_prices, target_window)
+        self.params = learn_params(train_prices, target, feature_window=self.feature_window)
 
     def test(self) -> np.ndarray:
-        """Predicted volatility for each trading day in the test window."""
-        return forecast_volatility(self.params, self.train_prices, self.horizon)
+        """Predicted volatility for each test day, using the actual returns up to
+        (but not including) that day. One value per trading day in the window."""
+        pred = predict_volatility(self.params, self.prices)   # over the FULL series
+        rows = np.flatnonzero(self.test_mask)
+        out = pred[rows - 1]                                  # returns prior to each test day
+        return np.clip(out, 1e-8, None)                       # keep positive for QLIKE
