@@ -14,7 +14,7 @@ This file supports two interfaces:
        predicted_volatility = model.predict(test_df)
        metrics = model.test(test_df)
 
-The input dataframe should contain at least a ``Close`` column. The shared
+The input dataframe should contain a close-price column, such as ``Close``, ``close``, ``Adj Close``, or a yfinance-style column like ``Close_AAPL``. The shared
 pipeline is expected to pass dataframes with ``Open``, ``Close``, ``High``,
 ``Low``, and ``Volume`` columns.
 """
@@ -304,14 +304,36 @@ class GARCHModel:
             raise RuntimeError("GARCHModel must be fitted before prediction/testing.")
 
     def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean input data and standardize the price column.
+
+        The shared data loader is still changing, so this method accepts several
+        common variants of the close-price column, including lowercase names,
+        ``Adj Close``, and flattened yfinance multi-index columns such as
+        ``Close_AAPL``.
+        """
+        if isinstance(df, pd.Series):
+            df = df.to_frame(name=self.price_col)
+
         if not isinstance(df, pd.DataFrame):
-            raise TypeError("Input must be a pandas DataFrame.")
+            raise TypeError("Input must be a pandas DataFrame or Series.")
 
         out = df.copy()
 
-        if "Date" in out.columns:
-            out["Date"] = pd.to_datetime(out["Date"])
-            out = out.set_index("Date")
+        # Flatten multi-index columns from yfinance downloads, if needed.
+        if isinstance(out.columns, pd.MultiIndex):
+            flat_cols = []
+            for col in out.columns:
+                parts = [str(x) for x in col if str(x) not in {"", "nan", "None"}]
+                flat_cols.append("_".join(parts))
+            out.columns = flat_cols
+        else:
+            out.columns = [str(c) for c in out.columns]
+
+        # Use a Date column as index if one is present.
+        date_col = self._find_column(out, ["Date", "date", "Datetime", "datetime"])
+        if date_col is not None:
+            out[date_col] = pd.to_datetime(out[date_col])
+            out = out.set_index(date_col)
 
         if not isinstance(out.index, pd.DatetimeIndex):
             try:
@@ -319,14 +341,83 @@ class GARCHModel:
             except Exception:
                 pass
 
-        if self.price_col not in out.columns:
-            raise ValueError(f"DataFrame must contain price column `{self.price_col}`.")
+        # Standardize the close-price column to self.price_col.
+        price_col = self._resolve_price_column(out)
+        if price_col != self.price_col:
+            out = out.rename(columns={price_col: self.price_col})
 
         out = out.sort_index()
         out = out.replace([np.inf, -np.inf], np.nan)
         out = out.dropna(subset=[self.price_col])
         out = out[out[self.price_col].astype(float) > 0]
+
+        if out.empty:
+            raise ValueError("No usable price observations remain after cleaning.")
+
         return out
+
+    @staticmethod
+    def _normalize_column_name(name: str) -> str:
+        return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+    def _find_column(self, df: pd.DataFrame, candidates) -> Optional[str]:
+        normalized = {self._normalize_column_name(c): c for c in df.columns}
+        for candidate in candidates:
+            key = self._normalize_column_name(candidate)
+            if key in normalized:
+                return normalized[key]
+        return None
+
+    def _resolve_price_column(self, df: pd.DataFrame) -> str:
+        """Find the column that should be used as the close price."""
+        direct_candidates = [
+            self.price_col,
+            "Close",
+            "close",
+            "Adj Close",
+            "Adj_Close",
+            "adj close",
+            "adj_close",
+            "Adjusted Close",
+            "adjusted_close",
+            "Price",
+            "price",
+            "Last",
+            "last",
+        ]
+
+        found = self._find_column(df, direct_candidates)
+        if found is not None:
+            return found
+
+        # Handle columns like Close_AAPL, AAPL_Close, ('Close', 'AAPL') after flattening.
+        normalized_cols = {c: self._normalize_column_name(c) for c in df.columns}
+        close_like = [
+            c for c, norm in normalized_cols.items()
+            if "close" in norm and "low" not in norm
+        ]
+        if close_like:
+            if self.ticker:
+                ticker_key = self._normalize_column_name(self.ticker)
+                ticker_matches = [c for c in close_like if ticker_key in normalized_cols[c]]
+                if ticker_matches:
+                    return ticker_matches[0]
+            return close_like[0]
+
+        # If the dataframe has only one numeric column, use it as a price series.
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(numeric_cols) == 1:
+            warnings.warn(
+                f"Using `{numeric_cols[0]}` as the price column because no Close column was found.",
+                RuntimeWarning,
+            )
+            return numeric_cols[0]
+
+        raise ValueError(
+            "Could not find a close-price column. "
+            f"Expected something like `Close`, `close`, `Adj Close`, or `Close_<ticker>`. "
+            f"Available columns are: {list(df.columns)}"
+        )
 
     @staticmethod
     def _filter_dates(
