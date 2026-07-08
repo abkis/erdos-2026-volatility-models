@@ -10,7 +10,7 @@ from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 from model.features.features import Features
 from model.refine_features.refine_features import RefineFeatures
 
-class RF_Model:
+class fit:
     """
         Handles logic of training/testing/evaluating/etc RF model
         Assumed input is cleaned dataframe with stock data which corresponds to training data
@@ -18,10 +18,12 @@ class RF_Model:
         Deals with daily historical data
     """
 
-    def __init__(self, features : List[str]| None, window: int=21, target_name : str = "GK_vol", target_window = 0,  lookback = 22, lamb = 0.94, 
+    def __init__(self, df : pd.DataFrame, test_start : str, features : List[str]| None, window: int=21, target_name : str = "GK_vol", target_window = 0,  lookback = 22, lamb = 0.94, 
                  winsorize = False, corr_threshold = 0.9, lower_q=0.01, upper_q=0.99, rf_refine=True, grid_search = False, rf_params = None):
         """
             Initialize class
+            df: pandas df containing test/train data
+            test_start: str of start date for test/train split
             window: positive integer for rolling window
             features: list of strings, must be from ["rolling_vol", "parkinson_vol", "close_close_vol", "GK_vol", "GKYZ", "vix_fix", "ewma", "macd", 
                 "macd_signal", "macd_hist", "rsi", "adx", "atr", "bb_width", "obv", "cmf", "rv_1", "rv_5", "rv_21", "rv_63"]
@@ -81,7 +83,9 @@ class RF_Model:
         
         self.grid_search = grid_search
 
-    def fit(self, df : pd.DataFrame, start_test : str, end_test =None):
+        self._fit(df, test_start)
+
+    def _fit(self, df : pd.DataFrame, start_test : str):
         """
             Fit model
             df: pandas dataframe with column names Date, Open, Close, Volume, High, Low
@@ -92,7 +96,6 @@ class RF_Model:
         """
         self.df = df.sort_values(by=["Date"]) 
         self.start_test = start_test
-        self.end_test = end_test
         self.det_features()
         self.fit_RF()
         return self
