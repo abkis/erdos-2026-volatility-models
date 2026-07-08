@@ -1,24 +1,22 @@
-"""GARCH(1,1) volatility model for the project pipeline.
 
-The class takes cleaned price data for one ticker and returns one-step-ahead
-volatility forecasts. It does not download data. The input dataframe should
-contain at least a ``Close`` column; ``Open``, ``High``, ``Low``, and ``Volume``
-can also be included by the data-cleaning step.
+"""GARCH(1,1) volatility model.
 
-Example
--------
-from garch_model import GARCHModel
+This file supports two interfaces:
 
-model = GARCHModel(train_df, ticker="^GSPC")
-predicted_vol = model.predict(test_df)
-metrics = model.test(test_df)
+1. Project-level main notebook interface:
 
-Notes
------
-GARCH is estimated with percentage log returns,
-``100 * log(Close_t / Close_{t-1})``. Forecasts are returned as decimal daily
-volatility by default, so 0.012 means 1.2% daily volatility. Set
-``annualize_output=True`` to return annualized volatility instead.
+       fits = models.garch_model.fit(data, start_date_predict, end_date_predict)
+       predicted_volatility = fits.test()
+
+2. Direct model interface:
+
+       model = GARCHModel(train_df, ticker="^GSPC")
+       predicted_volatility = model.predict(test_df)
+       metrics = model.test(test_df)
+
+The input dataframe should contain at least a ``Close`` column. The shared
+pipeline is expected to pass dataframes with ``Open``, ``Close``, ``High``,
+``Low``, and ``Volume`` columns.
 """
 
 from __future__ import annotations
@@ -35,10 +33,47 @@ try:
 except Exception:  # pragma: no cover
     minimize = None
 
+try:
+    from pandas.tseries.holiday import (
+        AbstractHolidayCalendar,
+        Holiday,
+        GoodFriday,
+        USMartinLutherKingJr,
+        USPresidentsDay,
+        USMemorialDay,
+        USLaborDay,
+        USThanksgivingDay,
+        nearest_workday,
+    )
+    from pandas.tseries.offsets import CustomBusinessDay
+except Exception:  # pragma: no cover
+    AbstractHolidayCalendar = None
+    CustomBusinessDay = None
+
+
+if AbstractHolidayCalendar is not None:
+    class _NYSEHolidayCalendar(AbstractHolidayCalendar):
+        """Approximate NYSE holiday calendar for forecast horizon length."""
+
+        rules = [
+            Holiday("New Years Day", month=1, day=1, observance=nearest_workday),
+            USMartinLutherKingJr,
+            USPresidentsDay,
+            GoodFriday,
+            USMemorialDay,
+            Holiday("Juneteenth", month=6, day=19, start_date="2022-06-19", observance=nearest_workday),
+            Holiday("Independence Day", month=7, day=4, observance=nearest_workday),
+            USLaborDay,
+            USThanksgivingDay,
+            Holiday("Christmas", month=12, day=25, observance=nearest_workday),
+        ]
+else:  # pragma: no cover
+    _NYSEHolidayCalendar = None
+
 
 @dataclass
 class GARCHParams:
-    """Fitted parameters for GARCH(1,1)."""
+    """Estimated GARCH(1,1) parameters."""
 
     mu: float
     omega: float
@@ -51,27 +86,7 @@ class GARCHParams:
 
 
 class GARCHModel:
-    """One-step-ahead GARCH(1,1) volatility forecaster.
-
-    Parameters
-    ----------
-    train_df:
-        Training data for one ticker. Must contain ``Close``.
-    ticker:
-        Optional ticker label used in output dictionaries.
-    price_col:
-        Price column used to compute returns.
-    realized_vol_method:
-        Realized-volatility proxy for ``test``. Options are ``abs_return``,
-        ``squared_return``, and ``parkinson``. The Parkinson proxy requires
-        ``High`` and ``Low`` columns.
-    annualize_output:
-        If True, predictions and test targets are multiplied by ``sqrt(252)``.
-    trading_days:
-        Number of trading days used for annualization.
-    min_obs:
-        Minimum number of returns needed to fit the model.
-    """
+    """One-step-ahead GARCH(1,1) volatility forecaster."""
 
     def __init__(
         self,
@@ -107,20 +122,20 @@ class GARCHModel:
         self.fit(self.train_df)
 
     def fit(self, train_df: Optional[pd.DataFrame] = None) -> "GARCHModel":
-        """Estimate GARCH(1,1) parameters from the training dataframe."""
+        """Estimate parameters from the training data."""
         if train_df is not None:
             self.train_df = self._prepare_dataframe(train_df)
 
         returns = self._compute_log_returns_percent(self.train_df)
         if len(returns) < self.min_obs:
             raise ValueError(
-                f"Not enough return observations to fit GARCH: "
-                f"need at least {self.min_obs}, got {len(returns)}."
+                f"Not enough observations to fit GARCH: need {self.min_obs}, got {len(returns)}."
             )
 
         self.train_returns_ = returns
         mu = float(returns.mean())
         eps = returns.to_numpy(dtype=float) - mu
+
         sample_var = float(np.var(eps, ddof=1))
         if not np.isfinite(sample_var) or sample_var <= 0:
             raise ValueError("Training returns have zero or invalid variance.")
@@ -142,8 +157,6 @@ class GARCHModel:
             name="garch_volatility_percent",
         )
 
-        # Store the final in-sample state so test-period forecasts start from
-        # the end of the training period.
         self.last_close_ = float(self.train_df[self.price_col].iloc[-1])
         self.last_epsilon_ = float(eps[-1])
         self.last_sigma2_ = float(sigma2[-1])
@@ -157,20 +170,64 @@ class GARCHModel:
         end_date: Optional[str] = None,
         annualize_output: Optional[bool] = None,
     ) -> np.ndarray:
-        """Return one-step-ahead volatility forecasts for the given dataframe."""
+        """Forecast volatility for rows in ``df`` using sequential updates."""
         self._check_fitted()
+
         pred_df = self._prepare_dataframe(df)
         pred_df = self._filter_dates(pred_df, start_date, end_date)
         if pred_df.empty:
             return np.array([], dtype=float)
 
-        use_annualized = self.annualize_output if annualize_output is None else annualize_output
         returns = self._compute_prediction_returns_percent(pred_df)
         pred_vol_percent = self._sequential_garch_forecast_percent(returns)
         pred_vol_decimal = pred_vol_percent / 100.0
+
+        use_annualized = self.annualize_output if annualize_output is None else annualize_output
         if use_annualized:
             pred_vol_decimal = pred_vol_decimal * np.sqrt(self.trading_days)
+
         return pred_vol_decimal.to_numpy(dtype=float)
+
+    def forecast_horizon(
+        self,
+        horizon: int,
+        annualize_output: Optional[bool] = None,
+    ) -> np.ndarray:
+        """Return multi-step-ahead volatility forecasts without future prices.
+
+        This is the method used by the shared ``main.ipynb`` adapter below,
+        because that notebook passes only training data into each model.
+        """
+        self._check_fitted()
+        if horizon <= 0:
+            return np.array([], dtype=float)
+
+        assert self.params_ is not None
+        assert self.last_epsilon_ is not None
+        assert self.last_sigma2_ is not None
+
+        omega = self.params_.omega
+        alpha = self.params_.alpha
+        beta = self.params_.beta
+
+        prev_sigma2 = float(self.last_sigma2_)
+        prev_eps2 = float(self.last_epsilon_ ** 2)
+
+        forecasts = []
+        for _ in range(int(horizon)):
+            forecast_sigma2 = omega + alpha * prev_eps2 + beta * prev_sigma2
+            forecast_sigma2 = max(float(forecast_sigma2), 1e-12)
+            forecasts.append(np.sqrt(forecast_sigma2) / 100.0)
+
+            # For horizons beyond one day, E[epsilon^2] equals forecast variance.
+            prev_eps2 = forecast_sigma2
+            prev_sigma2 = forecast_sigma2
+
+        out = np.asarray(forecasts, dtype=float)
+        use_annualized = self.annualize_output if annualize_output is None else annualize_output
+        if use_annualized:
+            out = out * np.sqrt(self.trading_days)
+        return out
 
     def test(
         self,
@@ -180,6 +237,7 @@ class GARCHModel:
     ) -> Dict[str, float]:
         """Evaluate forecasts against a realized-volatility proxy."""
         self._check_fitted()
+
         test_df = self._prepare_dataframe(df)
         test_df = self._filter_dates(test_df, start_date, end_date)
         if test_df.empty:
@@ -191,6 +249,7 @@ class GARCHModel:
         n = min(len(y_pred), len(y_true))
         y_pred = np.asarray(y_pred[:n], dtype=float)
         y_true = np.asarray(y_true[:n], dtype=float)
+
         mask = np.isfinite(y_pred) & np.isfinite(y_true)
         y_pred = y_pred[mask]
         y_true = y_true[mask]
@@ -215,7 +274,7 @@ class GARCHModel:
         }
 
     def get_fitted_params(self) -> Dict[str, float]:
-        """Return fitted parameters and convergence status."""
+        """Return estimated parameters and convergence status."""
         self._check_fitted()
         assert self.params_ is not None
         return {
@@ -249,6 +308,7 @@ class GARCHModel:
             raise TypeError("Input must be a pandas DataFrame.")
 
         out = df.copy()
+
         if "Date" in out.columns:
             out["Date"] = pd.to_datetime(out["Date"])
             out = out.set_index("Date")
@@ -291,6 +351,7 @@ class GARCHModel:
 
     def _compute_prediction_returns_percent(self, df: pd.DataFrame) -> pd.Series:
         assert self.last_close_ is not None
+
         close = df[self.price_col].astype(float)
         values = []
         prev_close = float(self.last_close_)
@@ -306,7 +367,6 @@ class GARCHModel:
         eps: np.ndarray,
         sample_var: float,
     ) -> Tuple[float, float, float, bool, str]:
-        """Estimate omega, alpha, and beta by Gaussian quasi-MLE."""
         x0 = np.array([max(sample_var * 0.05, 1e-8), 0.05, 0.90], dtype=float)
         bounds = [(1e-12, None), (1e-8, 0.999), (1e-8, 0.999)]
 
@@ -359,7 +419,6 @@ class GARCHModel:
         return sigma2
 
     def _sequential_garch_forecast_percent(self, returns_percent: pd.Series) -> pd.Series:
-        """Forecast each test date using information available before that date."""
         assert self.params_ is not None
         assert self.last_epsilon_ is not None
         assert self.last_sigma2_ is not None
@@ -378,7 +437,6 @@ class GARCHModel:
             forecast_sigma2 = max(float(forecast_sigma2), 1e-12)
             forecasts.append(np.sqrt(forecast_sigma2))
 
-            # Today's shock updates tomorrow's forecast, not today's forecast.
             prev_eps = float(r_t - mu)
             prev_sigma2 = forecast_sigma2
 
@@ -394,6 +452,8 @@ class GARCHModel:
         if method in {"abs_return", "squared_return"}:
             returns_percent = self._compute_prediction_returns_percent(df)
             realized_daily_decimal = np.abs(returns_percent.to_numpy(dtype=float) / 100.0)
+            if method == "squared_return":
+                realized_daily_decimal = realized_daily_decimal**2
         elif method == "parkinson":
             if "High" not in df.columns or "Low" not in df.columns:
                 raise ValueError("Parkinson volatility requires `High` and `Low` columns.")
@@ -412,3 +472,72 @@ class GARCHModel:
         if annualize_output:
             realized_daily_decimal = realized_daily_decimal * np.sqrt(self.trading_days)
         return realized_daily_decimal
+
+
+class fit:
+    """Adapter for the shared ``main.ipynb`` interface.
+
+    The group notebook calls each model as:
+
+        fits = models.garch_model.fit(data, start_date_predict, end_date_predict)
+        predicted_volatility = fits.test()
+
+    This adapter keeps that interface while reusing ``GARCHModel`` internally.
+    """
+
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        start_date_predict: str,
+        end_date_predict: str,
+        ticker: Optional[str] = None,
+        annualize_output: bool = True,
+        price_col: str = "Close",
+        trading_days: int = 252,
+    ) -> None:
+        self.data = data
+        self.start_date_predict = pd.to_datetime(start_date_predict)
+        self.end_date_predict = pd.to_datetime(end_date_predict)
+        self.ticker = ticker
+        self.annualize_output = annualize_output
+        self.price_col = price_col
+        self.trading_days = trading_days
+
+        self.model = GARCHModel(
+            train_df=data,
+            ticker=ticker,
+            price_col=price_col,
+            annualize_output=annualize_output,
+            trading_days=trading_days,
+        )
+
+        self.prediction_dates = self._prediction_dates(
+            self.start_date_predict,
+            self.end_date_predict,
+        )
+
+    def test(self):
+        """Return forecasts in the format expected by ``compare_models``."""
+        forecasts = self.model.forecast_horizon(
+            horizon=len(self.prediction_dates),
+            annualize_output=self.annualize_output,
+        )
+        return [np.float64(x) for x in forecasts]
+
+    def predict(self):
+        """Alias for ``test``."""
+        return self.test()
+
+    def get_fitted_params(self) -> Dict[str, float]:
+        return self.model.get_fitted_params()
+
+    @staticmethod
+    def _prediction_dates(start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DatetimeIndex:
+        if end_date < start_date:
+            return pd.DatetimeIndex([])
+
+        if CustomBusinessDay is not None and _NYSEHolidayCalendar is not None:
+            nyse_day = CustomBusinessDay(calendar=_NYSEHolidayCalendar())
+            return pd.date_range(start=start_date, end=end_date, freq=nyse_day)
+
+        return pd.bdate_range(start=start_date, end=end_date)
