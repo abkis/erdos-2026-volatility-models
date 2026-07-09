@@ -7,17 +7,19 @@ R1   = kernel-weighted sum of past daily returns        (trend / leverage effect
 Sigma= sqrt(R2), R2 = kernel-weighted sum of squared returns  (volatility clustering)
 Both kernels are time-shifted power laws  K(tau) = (tau + delta)^(-alpha).
 
-Harness entry point: the `fit` class. It is given the FULL price history plus a
-test window. Only the pre-test portion is used to learn the seven constants; the
-predictions then use the ACTUAL returns available up to each test day (training
-returns plus the test returns that precede it):
+Harness entry point: the `fit` class.
 
-    fit(data, start_date_predict, end_date_predict).test()
+    fit(data, split_date).test()
 
-`data` must therefore span through end_date_predict (e.g. training + test data).
+`data` is the full history (download_data.all_data()). The seven constants are
+learned ONLY from rows before `split_date`. Predictions for each test day are
+then built from the actual returns available up to that day -- training returns
+plus the earlier test returns -- since the split is irrelevant once the
+parameters are fixed.
 """
 
 from __future__ import annotations
+import warnings
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -188,47 +190,43 @@ class fit:
 
     Parameters
     ----------
-    data : yfinance DataFrame for one ticker spanning the FULL history through
-        end_date_predict (e.g. pd.concat([df.training_data(), df.test_data()])).
-    start_date_predict, end_date_predict : test window [start, end) (yfinance
-        end-exclusive). Parameters are learned only from rows before start;
-        predictions use the actual returns available up to each test day.
-    feature_window : PDV kernel look-back (paper uses 1000; auto-shrunk for short
-        training histories so ~half the training rows are left for fitting).
+    data : full-history yfinance DataFrame for one ticker (download_data.all_data()).
+    split_date : train/test boundary. Rows before it fit the constants; rows from
+        it onward are the test days returned by test().
+    feature_window : PDV kernel look-back (paper uses 1000; auto-shrunk on short
+        training histories so ~half the training rows remain for fitting).
     target_window : realized-vol window used as the training target; 22 matches
         the project's rolling_volatility benchmark.
     """
 
-    def __init__(self, data, start_date_predict, end_date_predict,
-                 feature_window: int = 1000, target_window: int = 22):
+    def __init__(self, data, split_date, feature_window: int = 1000, target_window: int = 22):
         prices = close_prices(data)
         self.dates = prices.index
         self.prices = prices.to_numpy(dtype=float)
 
-        start = pd.Timestamp(start_date_predict)
-        end = pd.Timestamp(end_date_predict)
-        self.test_mask = (self.dates >= start) & (self.dates < end)
-        train_mask = self.dates < start
+        split = pd.Timestamp(split_date)
+        self.test_mask = self.dates >= split
+        train_prices = self.prices[self.dates < split]
 
-        if self.test_mask.sum() == 0:
-            raise ValueError(
-                "No rows in [start_date_predict, end_date_predict) were found in `data`. "
-                "This model needs data spanning the test window -- pass the full history "
-                "through end_date_predict, e.g. pd.concat([df.training_data(), df.test_data()]), "
-                "not just training_data().")
-
-        train_prices = self.prices[train_mask]
         n_train = train_prices.size
         if n_train < 40:
-            raise ValueError("Too little training history before start_date_predict.")
+            raise ValueError(f"Too little training history before {split.date()} (got {n_train} rows).")
+        if self.test_mask.sum() == 0:
+            raise ValueError(f"No rows on or after {split.date()}; `data` must span the test period.")
 
         self.feature_window = int(min(feature_window, max(60, n_train // 2)))
+        if self.feature_window < feature_window:
+            warnings.warn(
+                f"feature_window shrunk {feature_window} -> {self.feature_window}: only "
+                f"{n_train} training rows before {split.date()}. Longer history gives the "
+                f"kernel more memory and more rows to fit on.", stacklevel=2)
+
         target = trailing_realized_vol(train_prices, target_window)
         self.params = learn_params(train_prices, target, feature_window=self.feature_window)
 
     def test(self) -> np.ndarray:
-        """Predicted volatility for each test day, using the actual returns up to
-        (but not including) that day. One value per trading day in the window."""
+        """Predicted volatility for each test day (date >= split_date), using the
+        actual returns available up to the prior day."""
         pred = predict_volatility(self.params, self.prices)   # over the FULL series
         rows = np.flatnonzero(self.test_mask)
         out = pred[rows - 1]                                  # returns prior to each test day
