@@ -114,7 +114,7 @@ class single_ticker_compare:
             plt.plot(trading_days[:N], self.model_vol[model_name][:N], label=model_name)
            
 
-        plt.plot(trading_days, self.rolling_vol, label="Rolling Volatility", color="black", linewidth=2)
+        plt.plot(trading_days, self.rolling_vol, label="Rolling Volatility", color="black", linewidth=3)
         plt.grid(True)
         plt.xlabel("Date")
         plt.ylabel("Volatility")
@@ -210,10 +210,10 @@ class compare_all_models:
         self.date_range = date_range
         self.save_results = save_results
         self.model_dic = {"HAR-GK": models.HAR_GK, 
-                          "Black-Scholes": models.BS_model
-                #"Path Dependent": models.pdv_model,
-                #" GARCH": models.garch_model,
-                #"ML-Models": models.RF_model
+                          "Black-Scholes": models.BS_model,
+                "Path Dependent": models.pdv_model,
+                "GARCH": models.garch_model,
+                "ML-Models": models.RF_model
         }
         self.split_date = date_range[1]
 
@@ -241,7 +241,7 @@ class compare_all_models:
                 predicted_volatility = fits.test()
 
                 model_vol[model_name] = predicted_volatility
-                print(f"Model: {model_name}, Ticker: {ticker}, Predicted Volatility: {predicted_volatility}")
+                # print(f"Model: {model_name}, Ticker: {ticker}, Predicted Volatility: {predicted_volatility}")
                 
             Compare = single_ticker_compare(ticker, model_vol, df.rolling_volatility(), self.split_date, self.date_range[2],self.save_results)
 
