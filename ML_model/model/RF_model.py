@@ -18,7 +18,7 @@ class fit:
         Deals with daily historical data
     """
 
-    def __init__(self, df : pd.DataFrame, test_start : str, features : List[str]| None, window: int=21, target_name : str = "GK_vol", target_window = 0,  lookback = 22, lamb = 0.94, 
+    def __init__(self, df : pd.DataFrame, test_start : str, features : List[str]| None =None, window: int=21, target_name : str = "GK_vol", target_window = 0,  lookback = 22, lamb = 0.94, 
                  winsorize = False, corr_threshold = 0.9, lower_q=0.01, upper_q=0.99, rf_refine=True, grid_search = False, rf_params = None):
         """
             Initialize class
@@ -94,6 +94,14 @@ class fit:
             start_test denotes start of test dates
             end_test denotes end of test dates
         """
+        self.df = (
+            df.stack(level=1, future_stack=True)              
+              .reset_index()
+              .rename(columns={
+                  'level_0': 'Date',
+                  'Ticker': 'Symbol'
+              })
+            )
         self.df = df.sort_values(by=["Date"]) 
         self.start_test = start_test
         self.det_features()

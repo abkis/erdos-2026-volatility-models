@@ -20,40 +20,39 @@ target_name = "GK_vol"
 
 def test_model(data : pd.DataFrame):
     # split into train/test
-    split_date = data.Date.quantile(0.8)
+    #split_date = data.Date.quantile(0.8)
         
-    train_mask = data['Date'] < split_date
+    #train_mask = data['Date'] < split_date
         
-    X_train = data[train_mask]
-    X_test  = data[~train_mask]
+    #X_train = data[train_mask]
+    #X_test  = data[~train_mask]
 
     try:
-        model = RF_model.fit(df=data, test_start=split_date, window=window, target_window=0, target_name=target_name, features=None, grid_search=False, rf_params=rf_params)
+        model = RF_model.fit(df=data, test_start="2020-01-01", window=window, target_window=0, target_name=target_name, features=None, grid_search=False, rf_params=rf_params)
     
         res = model.test()
         print(res)
     except Exception as e:
         raise e
 
-    metrics = model.test_results(X_test)
+    #metrics = model.test_results(X_test)
 
-    for k, v in metrics.items():
-        print(f"{k} = {v}")
+    #for k, v in metrics.items():
+    #    print(f"{k} = {v}")
     
-    return metrics
+    return 0
 
 def get_data(ticker : str, start_date, end_date):
     # get data from yfinance
     stock_data = yf.download(ticker, start=start_date, end=end_date)
     # collapse df
-    stock_data = (
-            stock_data.stack(level=1, future_stack=True)              
-              .reset_index()
-              .rename(columns={
-                  'level_0': 'Date',
-                  'Ticker': 'Symbol'
-              })
-            )
+    #stock_data = (
+    #        stock_data.stack(level=1, future_stack=True)              
+    #          .reset_index()
+    #          .rename(columns={
+    #              'level_0': 'Date',
+    #              'Ticker': 'Symbol'
+    #          })
     return stock_data.sort_values(by=["Date"])
 
 if __name__ == "__main__":
