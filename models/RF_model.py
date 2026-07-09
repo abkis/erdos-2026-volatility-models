@@ -102,7 +102,7 @@ class fit:
                   'Ticker': 'Symbol'
               })
             )
-        self.df = df.sort_values(by=["Date"]) 
+        #self.df = df.sort_values(by=["Date"]) 
         self.start_test = start_test
         self.det_features()
         self.fit_RF()
