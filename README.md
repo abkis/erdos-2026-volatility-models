@@ -1,3 +1,3 @@
 # Erdos-2026-volatility-models
 
-We will compare the performance of different volatility models in special cases where the market exhibits unusual behavior. In particular we plan to compare novel approaches such as path-dependent volatility and ML models to classics, such as the GARCH and HAR models.
+We will evaluate and compare the predictive performance of various volatility models during periods of extreme market stress and structural breaks. Specifically, we plan to benchmark advanced frameworks—including path-dependent volatility formulations and machine learning architectures—against traditional benchmarks like the GARCH and HAR models to determine which best captures tail-risk behavior.
