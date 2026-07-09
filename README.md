@@ -20,8 +20,14 @@ Models are assessed on held-out test windows using two complementary metrics:
 - **MSE** – Mean Squared Error against realized forward volatility  
 - **QLIKE** – Quasi-likelihood loss, less sensitive to outlier spikes and favored in the volatility forecasting literature
 
-## Key Findings
+## Conclusion
 
-- Dynamic models (GARCH, HAR, ML) consistently outperform the Black-Scholes constant-volatility baseline on MSE during the unstable regime, confirming that time-varying volatility matters most under market stress.
-- The ML model shows competitive in-sample fit but is prone to overfitting; its advantage over traditional econometric models is modest and inconsistent out-of-sample.
-- Black-Scholes serves as the pricing engine and interpretable lower bound — not a direct competitor to the volatility forecasters, but an essential benchmark that highlights how much accuracy is sacrificed by assuming constant volatility.
+- **Path Dependent** is the best overall model, achieving the lowest MSE
+  on 5 of 6 tickers and consistently strong QLIKE scores across all regimes.
+- **ML and GARCH** are competitive on stable tickers but show inconsistent
+  performance under extreme market stress, with neither dominating the other.
+- **HAR-GK** performs reasonably on stable assets but degrades sharply on
+  high-volatility tickers, making it the weakest of the dynamic models overall.
+- **Black-Scholes** ranks last on MSE due to its constant-volatility assumption,
+  yet remains competitive under QLIKE — serving as a reliable pricing floor
+  rather than a forecasting tool.
