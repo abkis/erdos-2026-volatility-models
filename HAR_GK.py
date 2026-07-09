@@ -9,7 +9,7 @@ class fit():
     Class to fit the HAR-GK model to the provided data and make predictions for the specified date range.   
     '''
 
-    def __init__(self, data, start_date_predict, end_date_predict):
+    def __init__(self, data, split_date):
         '''
         Initialize the fit class with the provided data and prediction date range.
         data: DataFrame, historical stock data with multi-level columns 
@@ -17,10 +17,11 @@ class fit():
         end_date_predict: str, end date for prediction in 'YYYY-MM-DD' format
         '''
 
-        self.data = data
+        self.data = data[data.index <split_date]   
         self.ticker = self.data.columns.get_level_values(1)[0]
-        self.start_date_predict = start_date_predict
-        self.end_date_predict = end_date_predict
+        self.start_date = data.index[0].strftime("%Y-%m-%d")
+        self.start_date_predict = split_date
+        self.end_date_predict = (data.index[-1] + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
     def volatility_fit(self):
         '''
