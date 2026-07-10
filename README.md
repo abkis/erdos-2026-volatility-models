@@ -22,12 +22,4 @@ Models are assessed on held-out test windows using two complementary metrics:
 
 ## Conclusion
 
-- **Path Dependent** is the best overall model, achieving the lowest MSE
-  on 5 of 6 tickers and consistently strong QLIKE scores across all regimes.
-- **ML and GARCH** are competitive on stable tickers but show inconsistent
-  performance under extreme market stress, with neither dominating the other.
-- **HAR-GK** performs reasonably on stable assets but degrades sharply on
-  high-volatility tickers, making it the weakest of the dynamic models overall.
-- **Black-Scholes** ranks last on MSE due to its constant-volatility assumption,
-  yet remains competitive under QLIKE — serving as a reliable pricing floor
-  rather than a forecasting tool.
+
