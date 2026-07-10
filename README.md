@@ -2,10 +2,6 @@
 
 ## Overview
 
-Implements Black-Scholes as the constant-volatility baseline for our volatility forecasting comparison. It computes historical sigma from the training window and repeats it across all test-period trading days.
-
-## Overview
-
 Implements Black-Scholes as the **constant-volatility baseline** for our volatility forecasting comparison. Historical sigma is estimated from training returns and held fixed across the entire test window.
 
 ## Model
