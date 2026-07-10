@@ -20,17 +20,6 @@ Models are assessed on held-out test windows using two complementary metrics:
 - **MSE** – Mean Squared Error against realized forward volatility  
 - **QLIKE** – Quasi-likelihood loss, less sensitive to outlier spikes and favored in the volatility forecasting literature
 
-## Conclusion
-
-- **Path Dependent** is the best overall model.
-- **ML Model** Competitive but shows some inconsistencies
-- **HAR-GK and GARCH** performs reasonably on stable assets but degrades sharply on
-  high-volatility tickers, making it the weakest of the dynamic models overall.
-- **Black-Scholes** ranks last on MSE due to its constant-volatility assumption,
-  yet remains competitive under QLIKE — serving as a reliable pricing floor
-  rather than a forecasting tool.
-
-
 # Individual Branches
 
 The main branch contains the final notebook file which compares all models. However, certain branches contain additional information
@@ -41,3 +30,13 @@ The main branch contains the final notebook file which compares all models. Howe
 - Contains jupyter notebooks with explorations of use of the models
 - Contains files for elastic net and random forest model implementation
 - main.py can be run to test model and produces graphs of results
+
+  ## Conclusion
+
+- **Path Dependent** is the best overall model.
+- **ML Model** Competitive but shows some inconsistencies
+- **HAR-GK and GARCH** performs reasonably on stable assets but degrades sharply on
+  high-volatility tickers, making it the weakest of the dynamic models overall.
+- **Black-Scholes** ranks last on MSE due to its constant-volatility assumption,
+  yet remains competitive under QLIKE — serving as a reliable pricing floor
+  rather than a forecasting tool.
