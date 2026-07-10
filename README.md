@@ -12,17 +12,13 @@ Implements Black-Scholes as the **constant-volatility baseline** for our volatil
 
 Volatility is estimated as the annualized standard deviation of log-returns over the training period, then held constant as the forecast:
 
-​```
-σ = sqrt(252) * std(log(S_t / S_{t-1}))
-​```
+$$\hat{\sigma} = \sqrt{252} \cdot \text{std}\left(\log\frac{S_t}{S_{t-1}}\right)$$
 
 European option prices are then given by the Black-Scholes formula:
 
-​```
-d1 = (log(S0/K) + (r + 0.5*σ²)*T) / (σ * sqrt(T))
-d2 = d1 - σ * sqrt(T)
-C  = S0 * Φ(d1) - K * exp(-r*T) * Φ(d2)
-​```
+$$d_1 = \frac{\ln(S_0/K) + \left(r + \frac{1}{2}\hat{\sigma}^2\right)T}{\hat{\sigma}\sqrt{T}}, \qquad d_2 = d_1 - \hat{\sigma}\sqrt{T}$$
+
+$$C = S_0\,\Phi(d_1) - Ke^{-rT}\Phi(d_2)$$
 
 ## Methods
 
