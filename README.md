@@ -24,6 +24,13 @@ Models are assessed on held-out test windows using two complementary metrics:
 
 The main branch contains the final notebook file which compares all models. However, certain branches contain additional information
 
+## BS-model-notes
+
+- Contains notes for the Black-Scholes baseline model
+- Contains code for estimating volatility from training-period daily returns
+- Uses one constant volatility value for all test-period forecasts
+- Provides baseline results to compare with GARCH, HAR-GK, Random Forest, and Path Dependent models
+
 ## ML-model-notes
 
 - Contains notes on papers related to machine learning models and relevant volatility markers
