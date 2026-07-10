@@ -31,7 +31,7 @@ The main branch contains the final notebook file which compares all models. Howe
 - Contains files for elastic net and random forest model implementation
 - main.py can be run to test model and produces graphs of results
 
-  ## Conclusion
+## Conclusion
 
 - **Path Dependent** is the best overall model.
 - **ML Model** Competitive but shows some inconsistencies
