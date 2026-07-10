@@ -1,1 +1,1 @@
-# Black-Scholes -models
+# Black-Scholes Model
