@@ -3,7 +3,7 @@
 The code in this branch is designed to implement a simple linear model for path-dependent volatility described in the paper by Guyon and Lekeufack "Volatility is (Mostly) Path-Dependent". The principle behind path-dependent models is that we can use information concerning the entire path of data points up to a given point in time $t_0$. The model we build takes as input the vector of returns at all time increments $t \leq t_0$. We now describe specifically how this model is built.
 
 Let $S_t$ denote the asset price at time $t$, and define $r_t = (S_t - S_{t-1})/ S_{t-1}$ to be the simple return at time increment $t$. We will build out a linear model of the form:
-$ \text{Volatility}_{t_0} = \beta_0 + \beta_1 R_{t_0} + \beta_2 \Sigma_{t_0} $,
+$$\text{Volatility}_{t_0} = \beta_0 + \beta_1 R_{t_0} + \beta_2 \Sigma_{t_0}$$,
 where $R_{t_0}, \Sigma_{t_0}$ are both functions of the entire sequence of returns $\{ r_t\}_{t \leq t_0}$. In reality, $R_t$ depends directly on the simple returns $r_t$, while $\Sigma_t$ depends on the sequence of squared simple returns $r_t^2$.
 
 $R_t$ is designed to learn the so-called "leverage effect", namely that volatility tends to rise when assets fall. On the other hand, $\Sigma_t$ is meant to learn "volatility clustering", which describes the way in which periods of low/high volatility tend to be alongside other periods of low/high volatility. Naturally, both of these terms depend more heavily on the recent past as compared to the further past.
