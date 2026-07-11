@@ -32,6 +32,12 @@ The main branch contains the final notebook file which compares all models. Howe
 - Uses one constant volatility value for all test-period forecasts
 - Provides baseline results to compare with GARCH, HAR-GK, Random Forest, and Path Dependent models
 
+## HAR-model-notes
+- Contains code for the HAR volatility model
+- Uses the Garman-Klass volatility to compute daily Realized volatility.
+- Predicts the volatility as a linear model using the previous day, average weekly and average monthly Realized volatility.
+- Contains a jupyter notebook explaining the HAR model file. 
+
 ## GARCH-model-notes
 
 - Contains code for the GARCH(1,1) volatility model
