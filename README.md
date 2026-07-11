@@ -11,6 +11,7 @@ We implement and compare four classes of volatility models across six large-cap 
 | **Black-Scholes (BS)** | Constant-volatility baseline using annualized historical sigma from training returns |
 | **GARCH(1,1)** | Captures volatility clustering via autoregressive conditional heteroskedasticity |
 | **HAR-GK** | Heterogeneous Autoregressive model using Garman-Klass range-based estimator |
+| **Path-dependent** | Predicts volatility dependent solely on the entire sequence of past simple returns |
 | **ML (Random Forest)** | Machine learning model trained on a rich feature set including realized volatility, EWMA, VIX proxy, and technical indicators |
 
 ## Evaluation
@@ -22,7 +23,7 @@ Models are assessed on held-out test windows using two complementary metrics:
 
 # Individual Branches
 
-The main branch contains the final notebook file which compares all models. However, certain branches contain additional information
+The main branch contains the final notebook file which compares all models. However, certain branches contain additional information:
 
 ## BS-model-notes
 
@@ -38,6 +39,12 @@ The main branch contains the final notebook file which compares all models. Howe
 - Captures volatility clustering through past return shocks and past volatility
 - Produces recursive test-period volatility forecasts
 - Provides a traditional dynamic-volatility benchmark for comparison with BS, HAR-GK, Random Forest, and Path Dependent models
+
+## Path-dependent-model
+
+- Contains code for implementing a linear path-dependent volatility model
+- Contains a jupyter notebook explaining the model while building it out
+- Contains notes explaining the theoretical underpinning of the model in detail
 
 ## ML-model-notes
 
