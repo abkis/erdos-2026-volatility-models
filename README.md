@@ -31,6 +31,14 @@ The main branch contains the final notebook file which compares all models. Howe
 - Uses one constant volatility value for all test-period forecasts
 - Provides baseline results to compare with GARCH, HAR-GK, Random Forest, and Path Dependent models
 
+## GARCH-model-notes
+
+- Contains code for the GARCH(1,1) volatility model
+- Uses training-period daily log returns to estimate time-varying volatility
+- Captures volatility clustering through past return shocks and past volatility
+- Produces recursive test-period volatility forecasts
+- Provides a traditional dynamic-volatility benchmark for comparison with BS, HAR-GK, Random Forest, and Path Dependent models
+
 ## ML-model-notes
 
 - Contains notes on papers related to machine learning models and relevant volatility markers
